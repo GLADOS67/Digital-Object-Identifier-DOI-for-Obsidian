@@ -1,14 +1,19 @@
 # MarkDown Citation Processor
 A Python script for batch processing academic notes in Markdown format. It automatically cleans up redundant links, extracts DOIs, builds a citation relationship graph, and generates citation counts and tags for each document.
 ## ✨ Features
-\- Automatically parses YAML frontmatter to distinguish processed from unprocessed files
-\- Cleans redundant links in Markdown (e.g., login pages, article anchors)
-\- Fixes malformed image links by converting non-standard formats to plain parentheses
-\- Extracts all DOIs from the content and generates standardized display names and safe filenames
-\- Generates a reference list for each document (\`reference\` field) in the format: \`\[\[display\_name|DOI\]\]\`
-\- Counts global DOI citations and writes them to the \`citation\_count\` field
-\- Automatically tags documents as \`positive\` (cited) or \`negative\` (uncited)
-\- Supports incremental processing; re-runs only update statistics
+- Automatically parses YAML frontmatter to distinguish processed from unprocessed files (also detects CROSSREF-generated files via `reference` field)
+- **DOI Repair**: Fixes broken DOIs split by whitespace with iterative regex convergence
+- Cleans redundant links in a **single pass** (`COMBINED_LINK_PATTERN`) (e.g., login pages, article anchors, `#fragment` links)
+- Fixes malformed image links (`![alt](url)` format, including `C:/` local paths)
+- Removes MinerU rendering artifacts (`</?lcel>`, `</?nl>`)
+- Normalizes Unicode dashes to ASCII for consistent matching
+- Extracts all DOIs from the content and generates standardized display names and safe filenames
+- **LRU-cached** DOI processing (`@lru_cache`) for faster repeated lookups
+- Generates a reference list for each document (`reference` field) in the format: `[[display_name|DOI]]`
+- Counts global DOI citations and writes them to the `citation_count` field
+- Automatically tags documents as `positive` (cited) or `negative` (uncited)
+- **CSafeLoader/CSafeDumper** (libyaml) for faster YAML processing with SafeLoader fallback
+- Supports incremental processing; re-runs only update statistics
 ## 📦 Requirements
 \- Python 3.7+
 \- \[PyYAML\](https://pyyaml.org/)
@@ -36,13 +41,16 @@ Arguments:
 
 ### Identifying Unprocessed Files
 
-The script checks for the presence of the `aliases` field in the frontmatter to determine whether a file has already been processed.
+The script checks for the presence of `aliases` or `reference` fields to determine whether a file has already been processed. Files with `reference` but no `aliases` (e.g., CROSSREF output) are treated as processed with incremental update.
 
 ### Actions on First Processing
 
-- Removes `author` and `published` fields (optional, currently removed by the script)
+- Removes `author` and `published` fields
 - Fixes malformed image links (e.g., `[![[image.png]]](url)` → `![[image.png]](url)`)
-- Converts useless links (containing keywords like `login`, `article`, `md5=`) to plain text in parentheses
+- Normalizes Unicode dashes to ASCII
+- Removes MinerU artifact tags (`</?lcel>`, `</?nl>`)
+- Repairs broken DOIs split by whitespace
+- Converts useless links (containing keywords like `login`, `article`, `md5=`) to plain text in parentheses — all in a single regex pass
 - Extracts all DOIs and generates a reference list under the `reference` field
 - Adds `aliases: []` and a `special_reference_count` field
 
@@ -89,14 +97,19 @@ For questions or suggestions, feel free to open an issue or pull request.
 # MarkDown 文献引用处理器
 一个用于批量处理 Markdown 学术笔记的 Python 脚本，自动清洗无用链接、提取 DOI 并构建引用关系图，最终为每篇文献生成引用计数与标签。
 ## ✨ 功能特性
-\- 自动解析 YAML frontmatter，识别已处理与未处理文件
-\- 清理 Markdown 中的冗余链接（如登录页、文章页锚点等）
-\- 修复图片链接格式，将非标准图片链接转换为普通括号形式
-\- 提取全文中的 DOI，生成标准化显示名称与安全文件名
-\- 为每篇文献生成引用列表（\`reference\` 字段），格式：\`\[\[显示名|DOI\]\]\`
-\- 全局统计 DOI 被引用次数，写入 \`citation\_count\` 字段
-\- 自动标记文献为 \`positive\`（有引用）或 \`negative\`（无引用）
-\- 支持增量处理，重复运行仅更新统计信息
+- 自动解析 YAML frontmatter，识别已处理与未处理文件（同时兼容 CROSSREF 生成的 `reference` 字段）
+- **DOI 断链修复**：迭代正则修复被空白截断的 DOI
+- **单次正则**清理 Markdown 中的冗余链接（`COMBINED_LINK_PATTERN`，如登录页、文章锚点、`#fragment` 链接）
+- 修复图片链接格式（`![alt](url)` 格式，含 `C:/` 本地路径）
+- 移除 MinerU 渲染残留标签（`</?lcel>`、`</?nl>`）
+- Unicode 全角破折号标准化为 ASCII
+- 提取全文中的 DOI，生成标准化显示名称与安全文件名
+- **LRU 缓存** DOI 处理（`@lru_cache`），重复查询加速
+- 为每篇文献生成引用列表（`reference` 字段），格式：`[[显示名|DOI]]`
+- 全局统计 DOI 被引用次数，写入 `citation_count` 字段
+- 自动标记文献为 `positive`（有引用）或 `negative`（无引用）
+- **CSafeLoader/CSafeDumper**（libyaml）加速 YAML 处理，无 libyaml 时自动回退 SafeLoader
+- 支持增量处理，重复运行仅更新统计信息
 ## 📦 依赖环境
 \- Python 3.7+
 \- \[PyYAML\](https://pyyaml.org/)
@@ -124,13 +137,16 @@ python MarkDown.py \--path "/your/markdown/directory"
 
 ### 未处理文件的判断
 
-脚本通过检测 frontmatter 中是否包含 `aliases` 字段来判断文件是否已处理。
+脚本通过检测 frontmatter 中是否包含 `aliases` 或 `reference` 字段来判断文件是否已处理。含 `reference` 但无 `aliases` 的文件（如 CROSSREF 输出）按已处理增量更新。
 
 ### 首次处理时的操作
 
-- 移除 `author`、`published` 字段（可选，当前代码中已移除）
+- 移除 `author`、`published` 字段
 - 修复错误格式的图片链接（如 `[![[image.png]]](url)` → `![[image.png]](url)`）
-- 将无用链接（包含 `login`、`article`、`md5=` 等关键词）转为纯文本括号
+- Unicode 全角破折号标准化
+- 移除 MinerU 渲染残留标签（`</?lcel>`、`</?nl>`）
+- 修复被空白截断的 DOI
+- 单次正则将无用链接（包含 `login`、`article`、`md5=` 等关键词）转为纯文本括号
 - 提取所有 DOI，生成引用列表写入 `reference`
 - 添加 `aliases: []` 及 `special_reference_count` 字段
 
